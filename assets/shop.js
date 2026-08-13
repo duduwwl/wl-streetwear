@@ -16,7 +16,7 @@ let PRODUCTS = {
     detail: "Branca / 100% algodão",
     description: "A camiseta que resolve qualquer look. Branca, limpa e com caimento oversized para usar todos os dias.",
     price: 99,
-    image: "assets/images/tee-blue-graffiti.png",
+    image: "assets/images/tee-editorial.png",
     badge: "BÁSICA",
     specs: [["Cor", "Branco óptico"], ["Modelagem", "Oversized unissex"], ["Material", "100% algodão penteado · 220g"], ["Gola", "Canelada com reforço interno"], ["Estampa", "Sem estampa"], ["Tamanhos", "P, M, G e GG"]]
   },
@@ -38,7 +38,7 @@ let PRODUCTS = {
     detail: "Estampada / manga longa",
     description: "Blusa oversized com arte tipográfica original em alto contraste, pensada para uma leitura de streetwear de luxo e presença urbana.",
     price: 99,
-    image: "assets/images/hoodie-navy.png",
+    image: "assets/images/hoodie-editorial.png",
     badge: "BLUSA GRÁFICA",
     graphic: "WL / STACKED 01",
     specs: [["Cor", "Preto com arte azul"], ["Modelagem", "Oversized unissex"], ["Material", "Moletom leve · 3 cabos"], ["Gola", "Canelada com reforço interno"], ["Estampa", "Arte tipográfica original em silk"], ["Tamanhos", "P, M, G e GG"]]
@@ -67,7 +67,7 @@ let PRODUCTS = {
   "oculos-sport-shield": { name: "Sport Shield", category: "oculos", brand: "WL", detail: "Preto / lente prata", description: "Óculos com lente espelhada e armação leve para fechar o look street.", price: 219, image: "assets/images/accessories-editorial.png", badge: "ÓCULOS", specs: [["Lente", "Prata espelhada com proteção UV"], ["Armação", "Policarbonato preto"], ["Ajuste", "Unissex"], ["Tamanho", "Único"]] },
   "oculos-wl-frame": { name: "Óculos Street Frame", category: "oculos", brand: "WL", detail: "Preto / lente prata", description: "Óculos WL de linhas geométricas e acabamento escuro.", price: 129, image: "assets/images/glasses-silver-frame.png", badge: "ÓCULOS", specs: [["Lente", "Prata espelhada com proteção UV"], ["Armação", "Acetato preto"], ["Ajuste", "Unissex"], ["Tamanho", "Único"]] },
   "bone-black-panel": { name: "Boné Black Panel", category: "bones", brand: "WL", detail: "Preto / aba curva", description: "Boné preto 6-panel com detalhe azul discreto e ajuste traseiro.", price: 119, image: "assets/images/cap-black-panel.png", badge: "BONÉ", specs: [["Cor", "Preto"], ["Modelo", "6 panel"], ["Ajuste", "Fivela traseira"], ["Tamanho", "Único"]] },
-  "bone-high-curve": { name: "Boné High Curve", category: "bones", brand: "WL", detail: "Azul-marinho / aba curva", description: "Boné de aba curva com construção leve, ajuste traseiro e presença street.", price: 109, image: "assets/images/cap-navy-premium.png", badge: "BONÉ", specs: [["Cor", "Azul-marinho"], ["Modelo", "Aba curva"], ["Ajuste", "Regulável"], ["Tamanho", "Único"]] }
+  "bone-high-curve": { name: "Boné High Curve", category: "bones", brand: "WL", detail: "Azul-marinho / aba curva", description: "Boné de aba curva com construção leve, ajuste traseiro e presença street.", price: 109, image: "assets/images/cap-high-curve.png", badge: "BONÉ", specs: [["Cor", "Azul-marinho"], ["Modelo", "Aba curva"], ["Ajuste", "Regulável"], ["Tamanho", "Único"]] }
 };
 
 let PRODUCT_LIST = Object.entries(PRODUCTS).map(([id, product]) => ({ id, ...product }));
