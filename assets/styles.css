@@ -67,7 +67,7 @@ h2 { margin: 10px 0 0; font-size: clamp(26px, 3vw, 42px); line-height: 1.1; lett
 .hero-copy { position: relative; z-index: 1; padding: clamp(64px, 10vw, 142px) clamp(23px, 7vw, 110px); display: flex; flex-direction: column; justify-content: center; }
 .hero h1 em { color: var(--electric); font-style: normal; }
 .hero p { max-width: 460px; margin: 0 0 34px; color: #d8e5f8; font-family: var(--font-body); font-size: 15px; font-weight: 700; line-height: 1.85; }
-.hero-visual { position: relative; min-height: 440px; border-left: 1px solid var(--line); background: linear-gradient(135deg, rgba(7, 92, 255, .22), transparent 58%), url("/assets/images/hero-graphic-tee.png") center/cover; }
+.hero-visual { position: relative; min-height: 440px; border-left: 1px solid var(--line); background: linear-gradient(135deg, rgba(7, 92, 255, .22), transparent 58%), url("images/hero-graphic-tee.png") center/cover; }
 .hero-visual::after { content: "DROP 01 / 2026"; position: absolute; right: 25px; bottom: 25px; padding: 9px 11px; background: var(--paper); color: var(--black); font: 10px var(--font-mono); letter-spacing: .08em; }
 
 .section { padding: 100px clamp(20px, 5vw, 78px); }

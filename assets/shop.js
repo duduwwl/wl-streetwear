@@ -1,3 +1,13 @@
+const SITE_BASE = (() => {
+  const script = [...document.scripts].find(item => /assets\/shop\.js/.test(item.src));
+  return script ? new URL("..", script.src).href : new URL(".", window.location.href).href;
+})();
+
+function siteAsset(path) {
+  if (!path || /^https?:\/\//i.test(path)) return path;
+  return new URL(String(path).replace(/^\/+/, ""), SITE_BASE).href;
+}
+
 let PRODUCTS = {
   "basic-white": {
     name: "Camiseta Basic White",
@@ -6,7 +16,7 @@ let PRODUCTS = {
     detail: "Branca / 100% algodão",
     description: "A camiseta que resolve qualquer look. Branca, limpa e com caimento oversized para usar todos os dias.",
     price: 99,
-    image: "/assets/images/tee-editorial.png",
+    image: "assets/images/tee-editorial.png",
     badge: "BÁSICA",
     specs: [["Cor", "Branco óptico"], ["Modelagem", "Oversized unissex"], ["Material", "100% algodão penteado · 220g"], ["Gola", "Canelada com reforço interno"], ["Estampa", "Sem estampa"], ["Tamanhos", "P, M, G e GG"]]
   },
@@ -17,7 +27,7 @@ let PRODUCTS = {
     detail: "Preta / 100% algodão",
     description: "Preta essencial com estrutura encorpada e visual urbano. Uma base forte para qualquer combinação.",
     price: 99,
-    image: "/assets/images/tee-editorial.png",
+    image: "assets/images/tee-editorial.png",
     badge: "BÁSICA",
     specs: [["Cor", "Preto profundo"], ["Modelagem", "Oversized unissex"], ["Material", "100% algodão penteado · 220g"], ["Gola", "Canelada com reforço interno"], ["Estampa", "Sem estampa"], ["Tamanhos", "P, M, G e GG"]]
   },
@@ -28,7 +38,7 @@ let PRODUCTS = {
     detail: "Estampada / manga longa",
     description: "Blusa oversized com arte tipográfica original em alto contraste, pensada para uma leitura de streetwear de luxo e presença urbana.",
     price: 99,
-    image: "/assets/images/hoodie-editorial.png",
+    image: "assets/images/hoodie-editorial.png",
     badge: "BLUSA GRÁFICA",
     graphic: "WL / STACKED 01",
     specs: [["Cor", "Preto com arte azul"], ["Modelagem", "Oversized unissex"], ["Material", "Moletom leve · 3 cabos"], ["Gola", "Canelada com reforço interno"], ["Estampa", "Arte tipográfica original em silk"], ["Tamanhos", "P, M, G e GG"]]
@@ -40,7 +50,7 @@ let PRODUCTS = {
     detail: "Estampada / manga longa",
     description: "Uma peça escura de proporção ampla, com grid gráfico exclusivo e acabamento azul elétrico para marcar o look.",
     price: 99,
-    image: "/assets/images/hoodie-editorial.png",
+    image: "assets/images/hoodie-editorial.png",
     badge: "BLUSA GRÁFICA",
     graphic: "NOCTURNAL / GRID 02",
     specs: [["Cor", "Cinza concreto"], ["Modelagem", "Oversized unissex"], ["Material", "Moletom leve · 3 cabos"], ["Gola", "Canelada com reforço interno"], ["Estampa", "Grid original frontal + assinatura traseira"], ["Tamanhos", "P, M, G e GG"]]
@@ -72,7 +82,7 @@ function cartTotal() { return cart.reduce((sum, item) => sum + (PRODUCTS[item.id
 function productUrl(id) { return `produtos/produto.html?slug=${encodeURIComponent(id)}`; }
 function productCard(product) {
   return `<article class="product product-${product.id}">
-    <a class="product-image" href="${productUrl(product.id)}" aria-label="Ver ${product.name}"><img src="${product.image}" alt="${product.name}" loading="lazy"><span class="badge">${product.badge}</span><span class="shirt-graphic${product.graphic ? "" : " is-hidden"}">${product.graphic || ""}</span></a>
+    <a class="product-image" href="${productUrl(product.id)}" aria-label="Ver ${product.name}"><img src="${siteAsset(product.image)}" alt="${product.name}" loading="lazy"><span class="badge">${product.badge}</span><span class="shirt-graphic${product.graphic ? "" : " is-hidden"}">${product.graphic || ""}</span></a>
     <div class="product-info"><div class="product-name-line"><a class="product-name" href="${productUrl(product.id)}">${product.name}</a><span class="brand-pill">${product.brand || "WL"}</span></div><span class="price">${money(product.price)}</span><span class="product-description">${product.detail}</span><button class="product-add" type="button" data-add-product="${product.id}">Adicionar à sacola +</button></div>
   </article>`;
 }
@@ -95,7 +105,7 @@ function renderProductPage() {
   const product = PRODUCTS[id];
   if (!product) return;
   document.title = `${product.name} — WL Streetwear`;
-  page.querySelector("[data-product-image]").src = product.image;
+  page.querySelector("[data-product-image]").src = siteAsset(product.image);
   page.querySelector("[data-product-image]").alt = product.name;
   page.querySelector("[data-product-name]").textContent = product.name;
   page.querySelector("[data-product-price]").textContent = money(product.price);
