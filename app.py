@@ -29,6 +29,8 @@ MP_ACCESS_TOKEN = os.environ.get("MERCADO_PAGO_ACCESS_TOKEN", "").strip()
 MP_WEBHOOK_SECRET = os.environ.get("MERCADO_PAGO_WEBHOOK_SECRET", "").strip()
 MP_WEBHOOK_URL = os.environ.get("MERCADO_PAGO_WEBHOOK_URL", "").strip()
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://duduwwl.github.io/wl-streetwear").rstrip("/")
+_app_url = urlparse(APP_BASE_URL)
+APP_CORS_ORIGIN = f"{_app_url.scheme}://{_app_url.netloc}"
 
 def catalog_product(slug, name, category, brand, detail, description, price_cents, image_url, badge, specs, graphic=None):
     return {"slug": slug, "name": name, "category": category, "brand": brand, "detail": detail, "description": description, "price_cents": price_cents, "image_url": image_url, "badge": badge, "graphic": graphic, "specs": specs}
@@ -306,8 +308,8 @@ class StoreHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         origin = self.headers.get("Origin", "")
-        if origin == APP_BASE_URL:
-            self.send_header("Access-Control-Allow-Origin", APP_BASE_URL)
+        if origin == APP_CORS_ORIGIN:
+            self.send_header("Access-Control-Allow-Origin", APP_CORS_ORIGIN)
             self.send_header("Vary", "Origin")
         super().end_headers()
 
