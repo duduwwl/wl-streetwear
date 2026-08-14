@@ -94,6 +94,7 @@ let PRODUCT_LIST = Object.entries(PRODUCTS).map(([id, product]) => ({ id, ...pro
 const STORAGE_KEY = "wl-streetwear-cart";
 const CUSTOMER_KEY = "wl-streetwear-customer";
 const DEMO_ORDERS_KEY = "wl-streetwear-manager-orders";
+const MANAGER_INVENTORY_KEY = "wl-streetwear-manager-inventory";
 const STORE_WHATSAPP = "5511998764321";
 const money = value => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -234,6 +235,17 @@ function bindMobileCategorySelect() {
     const category = select.value;
     window.location.href = category === "todos" ? "colecao.html" : `colecao.html?categoria=${encodeURIComponent(category)}`;
   });
+}
+
+function applyLocalInventory() {
+  try {
+    const inventory = JSON.parse(localStorage.getItem(MANAGER_INVENTORY_KEY) || "{}");
+    PRODUCT_LIST = Object.entries(PRODUCTS)
+      .filter(([id]) => inventory[id] == null || (inventory[id].active !== false && Number(inventory[id].stock) > 0))
+      .map(([id, product]) => ({ id, ...product }));
+  } catch {
+    PRODUCT_LIST = Object.entries(PRODUCTS).map(([id, product]) => ({ id, ...product }));
+  }
 }
 
 function initializeHeroSlideshow() {
@@ -426,6 +438,7 @@ async function loadProductsFromApi() {
 
 async function initializeStore() {
   await loadProductsFromApi();
+  applyLocalInventory();
   const selectedCategory = new URLSearchParams(window.location.search).get("categoria") || "todos";
   renderProductGrids(selectedCategory);
   renderProductPage();

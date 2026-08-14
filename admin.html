@@ -36,5 +36,6 @@
     async function saveStock(slug){const input=document.querySelector(`[data-stock="${CSS.escape(slug)}"]`);const active=document.querySelector(`[data-active="${CSS.escape(slug)}"]`);const stock=Number(input.value);try{const response=await fetch(`/api/admin/products/${encodeURIComponent(slug)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({stock,active:active.checked})});const result=await response.json();if(!response.ok)throw new Error(result.error);feedback(stock===0?'Produto removido da loja por estoque zerado.':'Estoque atualizado.');loadDashboard()}catch(error){feedback(error.message||'Não foi possível atualizar o estoque.',true)}}
     document.addEventListener('click',event=>{const status=event.target.closest('[data-save-status]');if(status){saveStatus(status.dataset.saveStatus);return}const stock=event.target.closest('[data-save-stock]');if(stock)saveStock(stock.dataset.saveStock)});document.getElementById('refreshDashboard').addEventListener('click',loadDashboard);loadDashboard();
   </script>
+  <script src="assets/admin-static.js?v=20260814a"></script>
 </body>
 </html>
