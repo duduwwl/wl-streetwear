@@ -12,4 +12,4 @@ services:
       - key: MERCADO_PAGO_WEBHOOK_SECRET
         sync: false
       - key: MERCADO_PAGO_WEBHOOK_URL
-        sync: false
+        value: https://wl-streetwear-api.onrender.com/api/payments/mercado-pago/webhook
