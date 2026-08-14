@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_method TEXT NOT NULL,
   total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
   status TEXT NOT NULL DEFAULT 'novo',
+  mp_preference_id TEXT,
+  mp_payment_id TEXT,
+  mp_payment_status TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: wl-streetwear-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_BASE_URL
+        value: https://duduwwl.github.io/wl-streetwear
+      - key: MERCADO_PAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADO_PAGO_WEBHOOK_SECRET
+        sync: false
+      - key: MERCADO_PAGO_WEBHOOK_URL
+        sync: false

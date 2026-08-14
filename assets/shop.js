@@ -8,6 +8,9 @@ function siteAsset(path) {
   return new URL(String(path).replace(/^\/+/, ""), SITE_BASE).href;
 }
 
+const API_BASE_URL = String(window.WL_API_BASE_URL || "").replace(/\/$/, "");
+const apiUrl = path => `${API_BASE_URL}${path}`;
+
 let PRODUCTS = {
   "basic-white": {
     name: "Camiseta Basic White",
@@ -301,6 +304,18 @@ function ensureCommerceOverlays() {
   }
 }
 
+function ensureMercadoPagoOption() {
+  const options = document.querySelector(".payment-options");
+  if (!options || options.querySelector("[data-mercado-pago]")) return;
+  options.insertAdjacentHTML("afterbegin", '<label class="payment-option"><input type="radio" name="payment" value="Mercado Pago" data-mercado-pago>Mercado Pago</label>');
+  const note = document.querySelector(".checkout-note");
+  if (note) note.textContent = "Mercado Pago abre o ambiente seguro de pagamento. PIX e cartão continuam disponíveis em modo de demonstração.";
+  if (API_BASE_URL) {
+    const mercadoPago = options.querySelector("[data-mercado-pago]");
+    if (mercadoPago) mercadoPago.checked = true;
+  }
+}
+
 function ensureAccountModal() {
   if (document.getElementById("accountModal")) return;
   document.body.insertAdjacentHTML("beforeend", `<section class="account-modal" id="accountModal" aria-hidden="true"><div class="backdrop" data-close-account></div><section class="account-box" role="dialog" aria-modal="true" aria-label="Sua conta"><div class="panel-heading"><div><p class="account-kicker">WL / MEMBERS</p><h3>Sua conta.</h3></div><button class="icon-button" type="button" data-close-account aria-label="Fechar conta">×</button></div><p class="account-copy">Entre para acompanhar suas compras e deixar seu checkout mais rápido.</p><div class="account-session" id="accountSession" hidden><span class="label">Cliente conectado</span><strong id="accountSessionName"></strong><p id="accountSessionEmail"></p><button class="account-logout" type="button" data-account-logout>Sair da conta</button></div><div id="accountWorkflow"><div class="account-tabs"><button class="account-tab active" type="button" data-account-tab="login">Entrar</button><button class="account-tab" type="button" data-account-tab="register">Criar conta</button></div><form class="account-form" data-account-form="login"><label>E-mail<input name="email" type="email" required autocomplete="email" placeholder="voce@email.com"></label><label>Senha<input name="password" type="password" required minlength="6" autocomplete="current-password" placeholder="Sua senha"></label><button class="button" type="submit">Entrar na WL <span>→</span></button></form><form class="account-form" data-account-form="register" hidden><label>Nome completo<input name="name" required autocomplete="name" placeholder="Seu nome"></label><label>E-mail<input name="email" type="email" required autocomplete="email" placeholder="voce@email.com"></label><label>Crie uma senha<input name="password" type="password" required minlength="6" autocomplete="new-password" placeholder="Mínimo de 6 caracteres"></label><button class="button" type="submit">Criar minha conta <span>→</span></button></form><p class="account-message" data-account-message aria-live="polite"></p><p class="account-legal">Área de conta de demonstração. Seus dados ficam no banco local desta loja de teste.</p></div></section></section>`);
@@ -331,7 +346,7 @@ async function submitAccountForm(form) {
   message.textContent = ""; message.classList.remove("success");
   try {
     const data = Object.fromEntries(new FormData(form));
-    const response = await fetch(`/api/auth/${mode === "register" ? "register" : "login"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    const response = await fetch(apiUrl(`/api/auth/${mode === "register" ? "register" : "login"}`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Não foi possível acessar sua conta");
     saveCustomer(result.customer); renderAccountLabel(); renderAccountSession(); message.textContent = mode === "register" ? "Conta criada com sucesso." : "Login realizado com sucesso."; message.classList.add("success");
@@ -363,22 +378,39 @@ async function payOrder(event) {
   const payment = document.querySelector('input[name="payment"]:checked').value;
   const name = document.getElementById("name").value;
   let reference = "";
-  if (window.location.protocol !== "file:") {
+  const checkoutPayload = {
+    customer: {
+      name,
+      email: document.getElementById("email").value,
+      address: document.getElementById("address").value,
+      city: document.getElementById("city").value,
+      zip: document.getElementById("zip").value
+    },
+    payment_method: payment,
+    items: cart
+  };
+  if (payment === "Mercado Pago") {
     try {
-      const response = await fetch("/api/orders", {
+      const response = await fetch(apiUrl("/api/payments/mercado-pago"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer: {
-            name,
-            email: document.getElementById("email").value,
-            address: document.getElementById("address").value,
-            city: document.getElementById("city").value,
-            zip: document.getElementById("zip").value
-          },
-          payment_method: payment,
-          items: cart
-        })
+        body: JSON.stringify(checkoutPayload)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.checkout_url) throw new Error(result.error || "Não foi possível iniciar o Mercado Pago.");
+      window.location.assign(result.checkout_url);
+      return;
+    } catch (error) {
+      alert(error.message || "O Mercado Pago ainda não está disponível. Tente novamente em instantes.");
+      return;
+    }
+  }
+  if (window.location.protocol !== "file:") {
+    try {
+      const response = await fetch(apiUrl("/api/orders"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(checkoutPayload)
       });
       if (response.ok) reference = (await response.json()).reference || "";
     } catch {}
@@ -442,7 +474,7 @@ document.addEventListener("submit", event => {
 async function loadProductsFromApi() {
   if (window.location.protocol === "file:") return;
   try {
-    const response = await fetch("/api/products", { headers: { Accept: "application/json" } });
+    const response = await fetch(apiUrl("/api/products"), { headers: { Accept: "application/json" } });
     if (!response.ok) return;
     const rows = await response.json();
     if (!Array.isArray(rows) || !rows.length) return;
@@ -467,6 +499,7 @@ async function initializeStore() {
 }
 
 ensureCommerceOverlays();
+ensureMercadoPagoOption();
 ensureAccountModal();
 ensureShippingCalculator();
 document.getElementById("checkoutForm")?.addEventListener("submit", payOrder);

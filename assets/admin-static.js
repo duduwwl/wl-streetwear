@@ -1,5 +1,5 @@
 (() => {
-  if (!location.hostname.endsWith("github.io")) return;
+  if (!location.hostname.endsWith("github.io") || window.WL_API_BASE_URL) return;
 
   const inventoryKey = "wl-streetwear-manager-inventory";
   const ordersKey = "wl-streetwear-manager-orders";

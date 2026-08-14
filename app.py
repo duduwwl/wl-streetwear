@@ -13,7 +13,9 @@ import secrets
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlparse
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -21,8 +23,12 @@ DB_PATH = DATA_DIR / "wl_streetwear.db"
 SCHEMA_PATH = DATA_DIR / "schema.sql"
 MAX_BODY_BYTES = 100_000
 VALID_SIZES = {"P", "M", "G", "GG"}
-VALID_PAYMENTS = {"Pix", "Cartão"}
+VALID_PAYMENTS = {"Pix", "Cartão", "Mercado Pago"}
 VALID_ORDER_STATUSES = {"novo", "pago", "separando", "enviado", "entregue", "cancelado"}
+MP_ACCESS_TOKEN = os.environ.get("MERCADO_PAGO_ACCESS_TOKEN", "").strip()
+MP_WEBHOOK_SECRET = os.environ.get("MERCADO_PAGO_WEBHOOK_SECRET", "").strip()
+MP_WEBHOOK_URL = os.environ.get("MERCADO_PAGO_WEBHOOK_URL", "").strip()
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://duduwwl.github.io/wl-streetwear").rstrip("/")
 
 def catalog_product(slug, name, category, brand, detail, description, price_cents, image_url, badge, specs, graphic=None):
     return {"slug": slug, "name": name, "category": category, "brand": brand, "detail": detail, "description": description, "price_cents": price_cents, "image_url": image_url, "badge": badge, "graphic": graphic, "specs": specs}
@@ -69,6 +75,13 @@ def initialize_database() -> None:
             database.execute("ALTER TABLE products ADD COLUMN brand TEXT NOT NULL DEFAULT 'WL'")
         if "stock" not in columns:
             database.execute("ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 12")
+        order_columns = {row["name"] for row in database.execute("PRAGMA table_info(orders)").fetchall()}
+        if "mp_preference_id" not in order_columns:
+            database.execute("ALTER TABLE orders ADD COLUMN mp_preference_id TEXT")
+        if "mp_payment_id" not in order_columns:
+            database.execute("ALTER TABLE orders ADD COLUMN mp_payment_id TEXT")
+        if "mp_payment_status" not in order_columns:
+            database.execute("ALTER TABLE orders ADD COLUMN mp_payment_status TEXT")
         image_by_category = {
             "camisetas": "/assets/images/tee-editorial.png",
             "blusas": "/assets/images/hoodie-editorial.png",
@@ -178,6 +191,113 @@ def admin_product_payload(row: sqlite3.Row) -> dict:
     }
 
 
+def mercado_pago_request(endpoint: str, method: str = "GET", payload: dict | None = None) -> dict:
+    """Faz chamadas ao Mercado Pago sem expor a credencial ao navegador."""
+    if not MP_ACCESS_TOKEN:
+        raise ValueError("Mercado Pago ainda não foi configurado no servidor")
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    request = Request(
+        f"https://api.mercadopago.com{endpoint}",
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        try:
+            detail = json.loads(error.read().decode("utf-8")).get("message", "")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            detail = ""
+        raise ValueError(f"Mercado Pago não aceitou o pagamento ({error.code}) {detail}".strip()) from error
+    except URLError as error:
+        raise ValueError("Não foi possível conectar ao Mercado Pago") from error
+
+
+def create_mercado_pago_preference(order: dict, reference: str) -> dict:
+    items = [
+        {
+            "id": str(item["product_id"]),
+            "title": item["product_name"],
+            "description": f"Tamanho {item['size']}",
+            "quantity": item["quantity"],
+            "currency_id": "BRL",
+            "unit_price": round(item["price_cents"] / 100, 2),
+        }
+        for item in order["items"]
+    ]
+    preference = {
+        "items": items,
+        "external_reference": reference,
+        "payer": {
+            "name": order["customer"]["name"],
+            "email": order["customer"]["email"],
+            "address": {
+                "street_name": order["customer"]["address"],
+                "zip_code": order["customer"]["zip"],
+            },
+        },
+        "back_urls": {
+            "success": f"{APP_BASE_URL}/pagamento.html?status=approved",
+            "pending": f"{APP_BASE_URL}/pagamento.html?status=pending",
+            "failure": f"{APP_BASE_URL}/pagamento.html?status=failure",
+        },
+        "auto_return": "approved",
+        "statement_descriptor": "WL STREETWEAR",
+    }
+    if MP_WEBHOOK_URL:
+        preference["notification_url"] = MP_WEBHOOK_URL
+    return mercado_pago_request("/checkout/preferences", "POST", preference)
+
+
+def create_mercado_pago_order(payload: dict) -> dict:
+    order = validate_order(payload)
+    if order["payment_method"] != "Mercado Pago":
+        raise ValueError("Forma de pagamento inválida")
+    reference = f"WL-{uuid.uuid4().hex[:8].upper()}"
+    preference = create_mercado_pago_preference(order, reference)
+    checkout_url = preference.get("sandbox_init_point") or preference.get("init_point")
+    if not checkout_url:
+        raise ValueError("Mercado Pago não retornou uma URL de checkout")
+    save_order(order, reference)
+    with connection() as database:
+        database.execute("UPDATE orders SET mp_preference_id = ? WHERE reference = ?", (str(preference.get("id", "")), reference))
+    return {"reference": reference, "checkout_url": checkout_url, "total": order["total_cents"] / 100}
+
+
+def valid_mercado_pago_signature(signature: str, request_id: str, data_id: str) -> bool:
+    if not MP_WEBHOOK_SECRET:
+        return False
+    parts = dict(part.split("=", 1) for part in signature.split(",") if "=" in part)
+    timestamp, signature_hash = parts.get("ts", ""), parts.get("v1", "")
+    manifest = f"id:{data_id.lower()};request-id:{request_id};ts:{timestamp};"
+    expected = hmac.new(MP_WEBHOOK_SECRET.encode("utf-8"), manifest.encode("utf-8"), hashlib.sha256).hexdigest()
+    return bool(signature_hash) and hmac.compare_digest(signature_hash, expected)
+
+
+def process_mercado_pago_webhook(data_id: str, signature: str, request_id: str) -> None:
+    if not data_id or not valid_mercado_pago_signature(signature, request_id, data_id):
+        raise PermissionError("Assinatura de webhook inválida")
+    payment = mercado_pago_request(f"/v1/payments/{data_id}")
+    reference = str(payment.get("external_reference", ""))
+    if not reference.startswith("WL-"):
+        return
+    payment_status = str(payment.get("status", ""))
+    status_map = {"approved": "pago", "rejected": "cancelado", "cancelled": "cancelado"}
+    with connection() as database:
+        database.execute(
+            "UPDATE orders SET mp_payment_id = ?, mp_payment_status = ? WHERE reference = ?",
+            (str(payment.get("id", data_id)), payment_status, reference),
+        )
+    if payment_status in status_map:
+        update_order_status(reference, status_map[payment_status])
+
+
 class StoreHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -185,6 +305,10 @@ class StoreHandler(SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
+        origin = self.headers.get("Origin", "")
+        if origin == APP_BASE_URL:
+            self.send_header("Access-Control-Allow-Origin", APP_BASE_URL)
+            self.send_header("Vary", "Origin")
         super().end_headers()
 
     def send_json(self, payload: dict | list, status: HTTPStatus = HTTPStatus.OK) -> None:
@@ -198,6 +322,8 @@ class StoreHandler(SimpleHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Allow", "GET, POST, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
     def do_GET(self) -> None:
@@ -225,8 +351,23 @@ class StoreHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
-        path = urlparse(self.path).path
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
         content_length = int(self.headers.get("Content-Length", "0"))
+        if path == "/api/payments/mercado-pago/webhook":
+            try:
+                body = json.loads(self.rfile.read(content_length).decode("utf-8")) if content_length else {}
+                query = parse_qs(parsed_url.query)
+                data_id = str(query.get("data.id", [body.get("data", {}).get("id", "")])[0])
+                process_mercado_pago_webhook(data_id, self.headers.get("x-signature", ""), self.headers.get("x-request-id", ""))
+            except PermissionError as error:
+                self.send_json({"error": str(error)}, HTTPStatus.UNAUTHORIZED)
+                return
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
+                self.send_json({"error": str(error) or "Webhook inválido"}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json({"received": True})
+            return
         if not 0 < content_length <= MAX_BODY_BYTES:
             self.send_json({"error": "Corpo da requisição inválido"}, HTTPStatus.BAD_REQUEST)
             return
@@ -237,6 +378,9 @@ class StoreHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/auth/login":
                 self.send_json(login_customer(payload))
+                return
+            if path == "/api/payments/mercado-pago":
+                self.send_json(create_mercado_pago_order(payload), HTTPStatus.CREATED)
                 return
             if path != "/api/orders":
                 self.send_json({"error": "Endpoint não encontrado"}, HTTPStatus.NOT_FOUND)
@@ -312,8 +456,8 @@ def validate_order(payload: dict) -> dict:
     return {"customer": normalized, "items": sanitized_items, "payment_method": payment, "total_cents": total_cents}
 
 
-def save_order(order: dict) -> str:
-    reference = f"WL-{uuid.uuid4().hex[:8].upper()}"
+def save_order(order: dict, reference: str | None = None) -> str:
+    reference = reference or f"WL-{uuid.uuid4().hex[:8].upper()}"
     with connection() as database:
         cursor = database.execute(
             """
