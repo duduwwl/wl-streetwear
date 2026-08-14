@@ -90,6 +90,21 @@ Object.assign(PRODUCTS, {
   "bone-high-curve": { ...PRODUCTS["bone-high-curve"], price: 70 }
 });
 
+function refreshStoreWording() {
+  Object.values(PRODUCTS).forEach(product => {
+    if (product.badge === "CURADORIA") product.badge = "SELE\u00c7\u00c3O";
+    if (typeof product.description === "string") product.description = product.description.replace(/curadoria/gi, "sele\u00e7\u00e3o");
+  });
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!node.parentElement?.closest("script, style")) nodes.push(node);
+  }
+  nodes.forEach(node => { node.nodeValue = node.nodeValue.replace(/curadoria/gi, "sele\u00e7\u00e3o"); });
+}
+
+refreshStoreWording();
 let PRODUCT_LIST = Object.entries(PRODUCTS).map(([id, product]) => ({ id, ...product }));
 const STORAGE_KEY = "wl-streetwear-cart";
 const CUSTOMER_KEY = "wl-streetwear-customer";
@@ -438,6 +453,7 @@ async function loadProductsFromApi() {
 
 async function initializeStore() {
   await loadProductsFromApi();
+  refreshStoreWording();
   applyLocalInventory();
   const selectedCategory = new URLSearchParams(window.location.search).get("categoria") || "todos";
   renderProductGrids(selectedCategory);
