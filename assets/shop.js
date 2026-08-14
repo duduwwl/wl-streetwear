@@ -70,9 +70,30 @@ let PRODUCTS = {
   "bone-high-curve": { name: "Boné High Curve", category: "bones", brand: "WL", detail: "Azul-marinho / aba curva", description: "Boné de aba curva com construção leve, ajuste traseiro e presença street.", price: 109, image: "assets/images/cap-high-curve.png", badge: "BONÉ", specs: [["Cor", "Azul-marinho"], ["Modelo", "Aba curva"], ["Ajuste", "Regulável"], ["Tamanho", "Único"]] }
 };
 
+Object.assign(PRODUCTS, {
+  "basic-white": { ...PRODUCTS["basic-white"], price: 109 },
+  "basic-black": { ...PRODUCTS["basic-black"], price: 119 },
+  "baw-archive": { ...PRODUCTS["baw-archive"], price: 100 },
+  "balenciaga-typography": { ...PRODUCTS["balenciaga-typography"], price: 120 },
+  "supreme-box": { ...PRODUCTS["supreme-box"], price: 110 },
+  "high-street": { ...PRODUCTS["high-street"], price: 115 },
+  "tag-graffiti": { ...PRODUCTS["tag-graffiti"], price: 249 },
+  "concrete-riot": { ...PRODUCTS["concrete-riot"], price: 259 },
+  "north-face-ice": { ...PRODUCTS["north-face-ice"], price: 249 },
+  "wl-heavy-hoodie": { ...PRODUCTS["wl-heavy-hoodie"], price: 279 },
+  "short-night-utility": { ...PRODUCTS["short-night-utility"], price: 100 },
+  "short-white-utility": { ...PRODUCTS["short-white-utility"], price: 100 },
+  "oculos-tech-shield": { ...PRODUCTS["oculos-tech-shield"], price: 99.9 },
+  "oculos-sport-shield": { ...PRODUCTS["oculos-sport-shield"], price: 99.9 },
+  "oculos-wl-frame": { ...PRODUCTS["oculos-wl-frame"], price: 99.9 },
+  "bone-black-panel": { ...PRODUCTS["bone-black-panel"], price: 70 },
+  "bone-high-curve": { ...PRODUCTS["bone-high-curve"], price: 70 }
+});
+
 let PRODUCT_LIST = Object.entries(PRODUCTS).map(([id, product]) => ({ id, ...product }));
 const STORAGE_KEY = "wl-streetwear-cart";
 const CUSTOMER_KEY = "wl-streetwear-customer";
+const DEMO_ORDERS_KEY = "wl-streetwear-manager-orders";
 const STORE_WHATSAPP = "5511998764321";
 const money = value => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -204,6 +225,29 @@ function bindCatalogFilters() {
   });
 }
 
+function bindMobileCategorySelect() {
+  const select = document.querySelector("[data-mobile-category-select]");
+  if (!select) return;
+  const selected = new URLSearchParams(window.location.search).get("categoria") || "todos";
+  select.value = selected;
+  select.addEventListener("change", () => {
+    const category = select.value;
+    window.location.href = category === "todos" ? "colecao.html" : `colecao.html?categoria=${encodeURIComponent(category)}`;
+  });
+}
+
+function initializeHeroSlideshow() {
+  const hero = document.querySelector(".hero-visual");
+  if (!hero || hero.querySelector(".hero-slide")) return;
+  const images = [
+    "assets/images/hero-graphic-tee.png",
+    "assets/images/tee-black-white-stroke.png",
+    "assets/images/tee-blue-graffiti.png",
+    "assets/images/tee-red-stencil.png"
+  ];
+  hero.innerHTML = images.map((image, index) => `<span class="hero-slide hero-slide-${index + 1}" style="background-image:url('${siteAsset(image)}')"></span>`).join("");
+}
+
 function bindCollectionMenu() {
   const menu = document.querySelector(".collection-menu");
   const toggle = menu?.querySelector("[data-collection-toggle]");
@@ -312,7 +356,27 @@ async function payOrder(event) {
       if (response.ok) reference = (await response.json()).reference || "";
     } catch {}
   }
-  const orderLabel = reference ? `Pedido ${reference} recebido, ${name}!` : `Pedido recebido, ${name}!`;
+  if (!reference) {
+    reference = `WL-${Date.now().toString().slice(-6)}`;
+    try {
+      const saved = JSON.parse(localStorage.getItem(DEMO_ORDERS_KEY) || "[]");
+      const order = {
+        reference,
+        customer: name,
+        email: document.getElementById("email").value,
+        address: document.getElementById("address").value,
+        city: document.getElementById("city").value,
+        zip: document.getElementById("zip").value,
+        payment,
+        status: "novo",
+        created_at: new Date().toISOString(),
+        total: cartTotal(),
+        items: cart.map(item => ({ product_name: PRODUCTS[item.id].name, quantity: item.quantity, size: item.size, unit_price: PRODUCTS[item.id].price }))
+      };
+      localStorage.setItem(DEMO_ORDERS_KEY, JSON.stringify([order, ...saved].slice(0, 100)));
+    } catch {}
+  }
+  const orderLabel = `Pedido ${reference} recebido, ${name}!`;
   alert(`${orderLabel}\n\nPagamento via ${payment} aprovado em modo demonstração.\nTotal: ${money(cartTotal())}`);
   cart = []; saveCart(); renderCart(); closeCheckout(); event.currentTarget.reset();
 }
@@ -367,6 +431,8 @@ async function initializeStore() {
   renderProductPage();
   renderCart();
   bindCatalogFilters();
+  bindMobileCategorySelect();
+  initializeHeroSlideshow();
   document.querySelectorAll("[data-filter]").forEach(button => button.classList.remove("active"));
   document.querySelector(`[data-filter="${selectedCategory}"]`)?.classList.add("active");
 }

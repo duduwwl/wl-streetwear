@@ -102,12 +102,22 @@ def initialize_database() -> None:
             "bone-supreme-panel": {"name": "Boné Black Panel", "category": "bones", "brand": "WL", "badge": "BONÉ", "detail": "Preto / aba curva", "description": "Boné preto 6-panel com detalhe azul discreto e ajuste traseiro.", "graphic": None, "specs": [["Cor", "Preto"], ["Modelo", "6 panel"], ["Material", "Algodão estruturado"], ["Ajuste", "Fivela traseira"], ["Tamanho", "Único"]]},
             "bone-high-curve": {"name": "Boné High Curve", "category": "bones", "brand": "WL", "badge": "BONÉ", "detail": "Azul / aba curva", "description": "Boné de aba curva com construção leve, ajuste traseiro e presença street.", "graphic": None},
         }
+        price_overrides = {
+            "basic-white": 10900, "basic-black": 11900, "baw-archive": 10000,
+            "balenciaga-typography": 12000, "supreme-box": 11000, "high-street": 11500,
+            "tag-graffiti": 24900, "concrete-riot": 25900, "north-face-ice": 24900,
+            "wl-heavy-hoodie": 27900, "short-basic-black": 10000, "short-baw-cargo": 10000,
+            "short-supreme-denim": 10000, "short-high-tech": 9990, "short-night-utility": 10000,
+            "oculos-oakley-sport": 9990, "oculos-wl-frame": 9990,
+            "bone-supreme-panel": 7000, "bone-high-curve": 7000,
+        }
         for product in SEED_PRODUCTS:
             if product["slug"].startswith("oculos-"):
                 product["category"] = "oculos"
             elif product["slug"].startswith("bone-"):
                 product["category"] = "bones"
             product.update(catalog_overrides.get(product["slug"], {}))
+            product["price_cents"] = price_overrides.get(product["slug"], product["price_cents"])
             product["image_url"] = image_by_slug.get(product["slug"], image_by_category.get(product["category"], product["image_url"]))
             database.execute(
                 """
