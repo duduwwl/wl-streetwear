@@ -26,6 +26,7 @@ VALID_SIZES = {"P", "M", "G", "GG"}
 VALID_PAYMENTS = {"Pix", "Cartão", "Mercado Pago"}
 VALID_ORDER_STATUSES = {"novo", "pago", "separando", "enviado", "entregue", "cancelado"}
 MP_ACCESS_TOKEN = os.environ.get("MERCADO_PAGO_ACCESS_TOKEN", "").strip()
+MP_PUBLIC_KEY = os.environ.get("MERCADO_PAGO_PUBLIC_KEY", "").strip()
 MP_WEBHOOK_SECRET = os.environ.get("MERCADO_PAGO_WEBHOOK_SECRET", "").strip()
 MP_WEBHOOK_URL = os.environ.get("MERCADO_PAGO_WEBHOOK_URL", "").strip()
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://duduwwl.github.io/wl-streetwear").rstrip("/")
@@ -193,20 +194,23 @@ def admin_product_payload(row: sqlite3.Row) -> dict:
     }
 
 
-def mercado_pago_request(endpoint: str, method: str = "GET", payload: dict | None = None) -> dict:
+def mercado_pago_request(endpoint: str, method: str = "GET", payload: dict | None = None, extra_headers: dict | None = None) -> dict:
     """Faz chamadas ao Mercado Pago sem expor a credencial ao navegador."""
     if not MP_ACCESS_TOKEN:
         raise ValueError("Mercado Pago ainda não foi configurado no servidor")
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    headers = {
+        "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
     request = Request(
         f"https://api.mercadopago.com{endpoint}",
         data=data,
         method=method,
-        headers={
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+        headers=headers,
     )
     try:
         with urlopen(request, timeout=20) as response:
@@ -272,6 +276,78 @@ def create_mercado_pago_order(payload: dict) -> dict:
     return {"reference": reference, "checkout_url": checkout_url, "total": order["total_cents"] / 100}
 
 
+def mercado_pago_config() -> dict:
+    """Entrega somente a chave pública exigida pelo Payment Brick."""
+    if not MP_PUBLIC_KEY:
+        raise ValueError("A chave pública do Mercado Pago ainda não foi configurada no servidor")
+    return {"public_key": MP_PUBLIC_KEY}
+
+
+def create_mercado_pago_payment(payload: dict) -> dict:
+    """Cria um pagamento do Payment Brick sem redirecionar o cliente."""
+    order_payload = payload.get("order")
+    payment_form = payload.get("payment")
+    if not isinstance(order_payload, dict) or not isinstance(payment_form, dict):
+        raise ValueError("Dados de pagamento inválidos")
+
+    order = validate_order({**order_payload, "payment_method": "Mercado Pago"})
+    payment_method_id = str(payment_form.get("payment_method_id", "")).strip()
+    token = str(payment_form.get("token", "")).strip()
+    if not payment_method_id:
+        raise ValueError("Selecione uma forma de pagamento no Mercado Pago")
+    if payment_method_id != "pix" and not token:
+        raise ValueError("Os dados do cartão não foram recebidos pelo Mercado Pago")
+
+    reference = f"WL-{uuid.uuid4().hex[:8].upper()}"
+    payer = payment_form.get("payer") if isinstance(payment_form.get("payer"), dict) else {}
+    payment = {
+        "transaction_amount": round(order["total_cents"] / 100, 2),
+        "description": f"Pedido WL Streetwear {reference}",
+        "payment_method_id": payment_method_id,
+        "installments": max(1, int(payment_form.get("installments", 1) or 1)),
+        "payer": {"email": order["customer"]["email"]},
+        "external_reference": reference,
+        "statement_descriptor": "WL STREETWEAR",
+    }
+    if token:
+        payment["token"] = token
+    if payment_form.get("issuer_id"):
+        payment["issuer_id"] = str(payment_form["issuer_id"])
+    if isinstance(payer.get("identification"), dict):
+        identification = payer["identification"]
+        if identification.get("type") and identification.get("number"):
+            payment["payer"]["identification"] = {
+                "type": str(identification["type"]),
+                "number": str(identification["number"]),
+            }
+    if MP_WEBHOOK_URL:
+        payment["notification_url"] = MP_WEBHOOK_URL
+
+    result = mercado_pago_request(
+        "/v1/payments",
+        "POST",
+        payment,
+        {"X-Idempotency-Key": str(uuid.uuid4())},
+    )
+    save_order(order, reference)
+    payment_status = str(result.get("status", "pending"))
+    with connection() as database:
+        database.execute(
+            "UPDATE orders SET mp_payment_id = ?, mp_payment_status = ? WHERE reference = ?",
+            (str(result.get("id", "")), payment_status, reference),
+        )
+    status_map = {"approved": "pago", "rejected": "cancelado", "cancelled": "cancelado"}
+    if payment_status in status_map:
+        update_order_status(reference, status_map[payment_status])
+    return {
+        "reference": reference,
+        "payment_id": str(result.get("id", "")),
+        "status": payment_status,
+        "status_detail": str(result.get("status_detail", "")),
+        "total": order["total_cents"] / 100,
+    }
+
+
 def valid_mercado_pago_signature(signature: str, request_id: str, data_id: str) -> bool:
     if not MP_WEBHOOK_SECRET:
         return False
@@ -333,6 +409,12 @@ class StoreHandler(SimpleHTTPRequestHandler):
         if path == "/api/health":
             self.send_json({"status": "ok", "database": "sqlite"})
             return
+        if path == "/api/payments/mercado-pago/config":
+            try:
+                self.send_json(mercado_pago_config())
+            except ValueError as error:
+                self.send_json({"error": str(error)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
         if path == "/api/products":
             with connection() as database:
                 rows = database.execute("SELECT * FROM products WHERE active = 1 ORDER BY id").fetchall()
@@ -383,6 +465,9 @@ class StoreHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/payments/mercado-pago":
                 self.send_json(create_mercado_pago_order(payload), HTTPStatus.CREATED)
+                return
+            if path == "/api/payments/mercado-pago/payment":
+                self.send_json(create_mercado_pago_payment(payload), HTTPStatus.CREATED)
                 return
             if path != "/api/orders":
                 self.send_json({"error": "Endpoint não encontrado"}, HTTPStatus.NOT_FOUND)

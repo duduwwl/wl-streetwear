@@ -10,6 +10,8 @@ function siteAsset(path) {
 
 const API_BASE_URL = String(window.WL_API_BASE_URL || "").replace(/\/$/, "");
 const apiUrl = path => `${API_BASE_URL}${path}`;
+let mercadoPagoBrickController = null;
+let mercadoPagoSdkPromise = null;
 
 let PRODUCTS = {
   "basic-white": {
@@ -220,6 +222,7 @@ function openCheckout() {
 
 function closeCheckout() {
   const modal = document.getElementById("checkoutModal");
+  unmountMercadoPagoBrick();
   modal.classList.remove("is-open"); modal.setAttribute("aria-hidden", "true"); document.body.classList.remove("modal-open");
 }
 
@@ -300,7 +303,7 @@ function ensureCommerceOverlays() {
     document.body.insertAdjacentHTML("beforeend", `<section class="drawer" id="cartDrawer" aria-hidden="true"><div class="backdrop" data-close-cart></div><aside class="cart-panel" role="dialog" aria-modal="true" aria-label="Sua sacola"><div class="panel-heading"><h3>Sua sacola</h3><button class="icon-button" type="button" data-close-cart aria-label="Fechar sacola">×</button></div><div class="cart-items" data-cart-items></div><div class="cart-total"><span>Total</span><strong data-cart-total>R$ 0,00</strong></div><button class="button" type="button" data-open-checkout>Ir para checkout <span>→</span></button></aside></section>`);
   }
   if (!document.getElementById("checkoutModal")) {
-    document.body.insertAdjacentHTML("beforeend", `<section class="checkout-modal" id="checkoutModal" aria-hidden="true"><div class="backdrop" data-close-checkout></div><div class="checkout-box" role="dialog" aria-modal="true" aria-label="Checkout"><div class="panel-heading"><h3>Checkout</h3><button class="icon-button" type="button" data-close-checkout aria-label="Fechar checkout">×</button></div><div class="checkout-summary" id="checkoutSummary">Seu pedido aparecerá aqui.</div><form id="checkoutForm"><div class="form-grid"><div class="field full"><label for="name">Nome completo</label><input id="name" required placeholder="Seu nome"></div><div class="field full"><label for="email">E-mail</label><input id="email" type="email" required placeholder="voce@email.com"></div><div class="field full"><label for="address">Endereço de entrega</label><input id="address" required placeholder="Rua, número e bairro"></div><div class="field"><label for="city">Cidade</label><input id="city" required placeholder="Lavras"></div><div class="field"><label for="zip">CEP</label><input id="zip" required inputmode="numeric" placeholder="00000-000"></div></div><p class="payment-title">Forma de pagamento</p><div class="payment-options"><label class="payment-option"><input type="radio" name="payment" value="Pix" checked>PIX (simulado)</label><label class="payment-option"><input type="radio" name="payment" value="Cartão">Cartão (simulado)</label></div><div class="checkout-actions"><button class="button" type="submit">Pagar agora <span>→</span></button><button class="button outline" type="button" data-send-whatsapp>WhatsApp ↗</button></div><p class="checkout-note">Checkout de demonstração: nenhum pagamento é processado.</p></form></div></section>`);
+    document.body.insertAdjacentHTML("beforeend", `<section class="checkout-modal" id="checkoutModal" aria-hidden="true"><div class="backdrop" data-close-checkout></div><div class="checkout-box" role="dialog" aria-modal="true" aria-label="Checkout"><div class="panel-heading"><h3>Checkout</h3><button class="icon-button" type="button" data-close-checkout aria-label="Fechar checkout">×</button></div><div class="checkout-summary" id="checkoutSummary">Seu pedido aparecerá aqui.</div><form id="checkoutForm"><div class="form-grid"><div class="field full"><label for="name">Nome completo</label><input id="name" required placeholder="Seu nome"></div><div class="field full"><label for="email">E-mail</label><input id="email" type="email" required placeholder="voce@email.com"></div><div class="field full"><label for="address">Endereço de entrega</label><input id="address" required placeholder="Rua, número e bairro"></div><div class="field"><label for="city">Cidade</label><input id="city" required placeholder="Lavras"></div><div class="field"><label for="zip">CEP</label><input id="zip" required inputmode="numeric" placeholder="00000-000"></div></div><p class="payment-title">Forma de pagamento</p><div class="payment-options"><label class="payment-option"><input type="radio" name="payment" value="Pix" checked>PIX (simulado)</label><label class="payment-option"><input type="radio" name="payment" value="Cartão">Cartão (simulado)</label></div><div class="checkout-actions"><button class="button" type="submit">Pagar agora <span>→</span></button><button class="button outline" type="button" data-send-whatsapp>WhatsApp ↗</button></div><p class="checkout-note">Checkout de demonstração: nenhum pagamento é processado.</p></form><section id="mercadoPagoBrick" class="mercado-pago-brick" hidden aria-live="polite"></section></div></section>`);
   }
 }
 
@@ -309,7 +312,7 @@ function ensureMercadoPagoOption() {
   if (!options || options.querySelector("[data-mercado-pago]")) return;
   options.insertAdjacentHTML("afterbegin", '<label class="payment-option"><input type="radio" name="payment" value="Mercado Pago" data-mercado-pago>Mercado Pago</label>');
   const note = document.querySelector(".checkout-note");
-  if (note) note.textContent = "Mercado Pago abre o ambiente seguro de pagamento. PIX e cartão continuam disponíveis em modo de demonstração.";
+  if (note) note.textContent = "O Mercado Pago abre o formulário de pagamento seguro dentro desta página. PIX e cartão simulados continuam disponíveis.";
   if (API_BASE_URL) {
     const mercadoPago = options.querySelector("[data-mercado-pago]");
     if (mercadoPago) mercadoPago.checked = true;
@@ -373,32 +376,96 @@ function calculateShipping() {
   result.textContent = fee ? `Entrega estimada: ${money(fee)} · prazo de 3 a 8 dias úteis.` : "Entrega grátis · prazo de 3 a 8 dias úteis.";
 }
 
-async function payOrder(event) {
-  event.preventDefault();
-  const payment = document.querySelector('input[name="payment"]:checked').value;
-  const name = document.getElementById("name").value;
-  let reference = "";
-  const checkoutPayload = {
+function unmountMercadoPagoBrick() {
+  const container = document.getElementById("mercadoPagoBrick");
+  if (mercadoPagoBrickController?.unmount) mercadoPagoBrickController.unmount();
+  mercadoPagoBrickController = null;
+  if (container) { container.hidden = true; container.innerHTML = ""; }
+  document.querySelector(".checkout-actions")?.removeAttribute("hidden");
+}
+
+function loadMercadoPagoSdk() {
+  if (window.MercadoPago) return Promise.resolve();
+  if (mercadoPagoSdkPromise) return mercadoPagoSdkPromise;
+  mercadoPagoSdkPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://sdk.mercadopago.com/js/v2";
+    script.async = true;
+    script.onload = () => window.MercadoPago ? resolve() : reject(new Error("Não foi possível carregar o Mercado Pago."));
+    script.onerror = () => reject(new Error("Não foi possível carregar o Mercado Pago."));
+    document.head.appendChild(script);
+  });
+  return mercadoPagoSdkPromise;
+}
+
+function checkoutPayloadFor(paymentMethod) {
+  return {
     customer: {
-      name,
+      name: document.getElementById("name").value,
       email: document.getElementById("email").value,
       address: document.getElementById("address").value,
       city: document.getElementById("city").value,
       zip: document.getElementById("zip").value
     },
-    payment_method: payment,
+    payment_method: paymentMethod,
     items: cart
   };
+}
+
+async function openMercadoPagoBrick() {
+  if (!API_BASE_URL) throw new Error("O servidor de pagamentos ainda não está configurado.");
+  const configResponse = await fetch(apiUrl("/api/payments/mercado-pago/config"), { headers: { Accept: "application/json" } });
+  const config = await configResponse.json();
+  if (!configResponse.ok || !config.public_key) throw new Error(config.error || "A chave pública do Mercado Pago ainda não foi configurada.");
+  await loadMercadoPagoSdk();
+  unmountMercadoPagoBrick();
+
+  const container = document.getElementById("mercadoPagoBrick");
+  const actions = document.querySelector(".checkout-actions");
+  const note = document.querySelector(".checkout-note");
+  container.hidden = false;
+  actions?.setAttribute("hidden", "");
+  if (note) note.textContent = "Pagamento processado com segurança pelo Mercado Pago, sem sair da WL Streetwear.";
+
+  const mercadoPago = new window.MercadoPago(config.public_key, { locale: "pt-BR" });
+  const bricksBuilder = mercadoPago.bricks();
+  mercadoPagoBrickController = await bricksBuilder.create("payment", "mercadoPagoBrick", {
+    initialization: {
+      amount: Number((cartTotal() / 100).toFixed(2)),
+      payer: { email: document.getElementById("email").value }
+    },
+    customization: { paymentMethods: { creditCard: "all", debitCard: "all", bankTransfer: "pix" } },
+    callbacks: {
+      onReady: () => {},
+      onSubmit: async ({ formData }) => {
+        const response = await fetch(apiUrl("/api/payments/mercado-pago/payment"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order: checkoutPayloadFor("Mercado Pago"), payment: formData })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Não foi possível processar o pagamento.");
+        const approved = result.status === "approved";
+        alert(approved
+          ? `Pagamento aprovado! Pedido ${result.reference} confirmado.`
+          : `Pedido ${result.reference} criado. Status do pagamento: ${result.status || "em análise"}.`);
+        if (approved) { cart = []; saveCart(); renderCart(); }
+        closeCheckout();
+      },
+      onError: error => { if (note) note.textContent = `Mercado Pago: ${error?.message || "não foi possível carregar o formulário."}`; }
+    }
+  });
+}
+
+async function payOrder(event) {
+  event.preventDefault();
+  const payment = document.querySelector('input[name="payment"]:checked').value;
+  const name = document.getElementById("name").value;
+  let reference = "";
+  const checkoutPayload = checkoutPayloadFor(payment);
   if (payment === "Mercado Pago") {
     try {
-      const response = await fetch(apiUrl("/api/payments/mercado-pago"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(checkoutPayload)
-      });
-      const result = await response.json();
-      if (!response.ok || !result.checkout_url) throw new Error(result.error || "Não foi possível iniciar o Mercado Pago.");
-      window.location.assign(result.checkout_url);
+      await openMercadoPagoBrick();
       return;
     } catch (error) {
       alert(error.message || "O Mercado Pago ainda não está disponível. Tente novamente em instantes.");
