@@ -135,9 +135,9 @@ function cartCount() { return cart.reduce((sum, item) => sum + item.quantity, 0)
 function cartTotal() { return cart.reduce((sum, item) => sum + (PRODUCTS[item.id].price * item.quantity), 0); }
 
 function productUrl(id) { return `produtos/produto.html?slug=${encodeURIComponent(id)}`; }
-function productCard(product) {
+function productCard(product, eagerImage = false) {
   return `<article class="product product-${product.id}">
-    <a class="product-image" href="${productUrl(product.id)}" aria-label="Ver ${product.name}"><img src="${siteAsset(product.image)}" alt="${product.name}" loading="lazy"><span class="badge">${product.badge}</span><span class="shirt-graphic${product.graphic ? "" : " is-hidden"}">${product.graphic || ""}</span></a>
+    <a class="product-image" href="${productUrl(product.id)}" aria-label="Ver ${product.name}"><img src="${siteAsset(product.image)}" alt="${product.name}" loading="${eagerImage ? "eager" : "lazy"}"${eagerImage ? " fetchpriority=\"high\"" : ""}><span class="badge">${product.badge}</span><span class="shirt-graphic${product.graphic ? "" : " is-hidden"}">${product.graphic || ""}</span></a>
     <div class="product-info"><div class="product-name-line"><a class="product-name" href="${productUrl(product.id)}">${product.name}</a><span class="brand-pill">${product.brand || "WL"}</span></div><span class="price">${money(product.price)}</span><span class="product-description">${product.detail}</span><button class="product-add" type="button" data-add-product="${product.id}">Adicionar à sacola +</button></div>
   </article>`;
 }
@@ -147,7 +147,7 @@ function renderProductGrids(filter = "todos") {
     const limit = Number(grid.dataset.limit || PRODUCT_LIST.length);
     const category = grid.dataset.category || filter;
     const filtered = category === "todos" ? PRODUCT_LIST : category === "acessorios" ? PRODUCT_LIST.filter(product => ["bones", "oculos"].includes(product.category)) : PRODUCT_LIST.filter(product => product.category === category);
-    grid.innerHTML = filtered.slice(0, limit).map(productCard).join("");
+    grid.innerHTML = filtered.slice(0, limit).map((product, index) => productCard(product, index < 4)).join("");
     const empty = grid.parentElement.querySelector("[data-empty-catalog]");
     if (empty) empty.hidden = filtered.length > 0;
   });
@@ -368,7 +368,7 @@ function ensureShippingCalculator() {
   const form = document.getElementById("checkoutForm");
   const fields = form?.querySelector(".form-grid");
   if (!form || !fields || form.querySelector("[data-calculate-shipping]")) return;
-  fields.insertAdjacentHTML("afterend", `<div class="shipping-calculator"><div><p class="payment-title">Taxa de entrega</p><p class="shipping-copy">Informe o CEP para estimar o envio do seu pedido.</p></div><button class="button outline shipping-button" type="button" data-calculate-shipping>Calcular entrega</button><p class="shipping-result" data-shipping-result aria-live="polite"></p></div>`);
+  fields.insertAdjacentHTML("afterend", `<div class="shipping-calculator"><div><p class="payment-title">Taxa de entrega</p><p class="shipping-copy">Envios saem de Lavras, MG. Informe o CEP para estimar a entrega.</p></div><button class="button outline shipping-button" type="button" data-calculate-shipping>Calcular entrega</button><p class="shipping-result" data-shipping-result aria-live="polite"></p></div>`);
 }
 
 function calculateShipping() {
@@ -379,9 +379,14 @@ function calculateShipping() {
     result.textContent = "Informe um CEP válido com 8 números para calcular.";
     return;
   }
-  const isRegional = zip.startsWith("37");
-  const fee = cartTotal() >= 29900 ? 0 : (isRegional ? 1290 : 1990);
-  result.textContent = fee ? `Entrega estimada: ${money(fee)} · prazo de 3 a 8 dias úteis.` : "Entrega grátis · prazo de 3 a 8 dias úteis.";
+  const isLavras = zip.startsWith("37200");
+  const isMinasGerais = zip.startsWith("3");
+  const freeShipping = cartTotal() >= 29900;
+  const fee = freeShipping ? 0 : (isLavras ? 990 : isMinasGerais ? 1490 : 1990);
+  const deliveryTime = isLavras ? "1 a 2 dias úteis" : isMinasGerais ? "2 a 4 dias úteis" : "4 a 8 dias úteis";
+  result.textContent = fee
+    ? `Saída de Lavras, MG · ${money(fee)} · prazo de ${deliveryTime}.`
+    : `Frete grátis saindo de Lavras, MG · prazo de ${deliveryTime}.`;
 }
 
 function unmountMercadoPagoBrick() {
@@ -547,30 +552,37 @@ document.addEventListener("submit", event => {
 });
 
 async function loadProductsFromApi() {
-  if (window.location.protocol === "file:") return;
+  if (window.location.protocol === "file:") return false;
   try {
     const response = await fetch(apiUrl("/api/products"), { headers: { Accept: "application/json" } });
-    if (!response.ok) return;
+    if (!response.ok) return false;
     const rows = await response.json();
-    if (!Array.isArray(rows) || !rows.length) return;
+    if (!Array.isArray(rows) || !rows.length) return false;
     PRODUCTS = Object.fromEntries(rows.map(row => [row.slug, { ...row, specs: row.specs || [] }]));
     PRODUCT_LIST = Object.entries(PRODUCTS).map(([id, product]) => ({ id, ...product }));
-  } catch {}
+    return true;
+  } catch { return false; }
 }
 
-async function initializeStore() {
-  await loadProductsFromApi();
+function renderStore(selectedCategory) {
   refreshStoreWording();
   applyLocalInventory();
-  const selectedCategory = new URLSearchParams(window.location.search).get("categoria") || "todos";
   renderProductGrids(selectedCategory);
   renderProductPage();
   renderCart();
+  document.querySelectorAll("[data-filter]").forEach(button => button.classList.remove("active"));
+  document.querySelector(`[data-filter="${selectedCategory}"]`)?.classList.add("active");
+}
+
+function initializeStore() {
+  const selectedCategory = new URLSearchParams(window.location.search).get("categoria") || "todos";
+  renderStore(selectedCategory);
   bindCatalogFilters();
   bindMobileCategorySelect();
   initializeHeroSlideshow();
-  document.querySelectorAll("[data-filter]").forEach(button => button.classList.remove("active"));
-  document.querySelector(`[data-filter="${selectedCategory}"]`)?.classList.add("active");
+  loadProductsFromApi().then(updated => {
+    if (updated) renderStore(selectedCategory);
+  });
 }
 
 ensureCommerceOverlays();
